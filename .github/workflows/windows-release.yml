@@ -1,0 +1,95 @@
+name: Build Windows player
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 50
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install application build dependencies
+        run: python -m pip install -r windows/requirements.txt
+      - name: Download exact upstream decoder source
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .ci-src, windows/resources/Tools, windows/resources/Licenses, release | Out-Null
+          Invoke-WebRequest https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz -OutFile .ci-src/ffmpeg-9.0.2.tar.xz
+          Copy-Item LICENSE, THIRD_PARTY.md windows/resources/Licenses/
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: make tar mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-zlib
+      - name: Build LGPL FFmpeg and ffprobe from source
+        shell: msys2 {0}
+        run: |
+          cd "$(cygpath -u "$GITHUB_WORKSPACE")"
+          tar -xf .ci-src/ffmpeg-9.0.2.tar.xz -C .ci-src
+          cd .ci-src/ffmpeg-9.0.2
+          ./configure --target-os=mingw32 --arch=x86_64 --cc=gcc --extra-ldflags=-static --disable-pthreads --enable-w32threads --disable-autodetect --disable-network --disable-doc --disable-debug --disable-asm --disable-everything --enable-ffmpeg --enable-ffprobe --enable-avfilter --enable-swresample --enable-zlib --enable-protocol=file,pipe --enable-filter=aresample,aformat,anull,volume,scale,format,loudnorm,alimiter --enable-decoder=aac,aac_fixed,aac_latm,ac3,ac3_fixed,eac3,alac,als,ape,atrac1,atrac3,atrac3al,atrac3plus,atrac3plusal,atrac9,flac,mp1,mp1float,mp2,mp2float,mp3,mp3float,mp3adu,mp3adufloat,opus,vorbis,wmav1,wmav2,wmapro,wmalossless,wmavoice,wavpack,tta,tak,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar,dst,dca,pcm_s8,pcm_u8,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_s32be,pcm_f32le,pcm_f32be,pcm_f64le,pcm_f64be,pcm_alaw,pcm_mulaw,adpcm_ima_wav,mjpeg,png --enable-demuxer=aac,ac3,eac3,aiff,ape,asf,au,caf,dsf,iff,dts,flac,mov,mp3,ogg,oma,wav,wv,tta,tak,matroska --enable-parser=aac,aac_latm,ac3,flac,mpegaudio,opus,vorbis,dca,png,mjpeg --enable-encoder=pcm_f32le,pcm_s16le,png,flac,alac --enable-muxer=pcm_f32le,wav,image2,image2pipe,flac,ipod
+          make -j4
+          cp ffmpeg.exe ffprobe.exe ../../windows/resources/Tools/
+          cp COPYING.LGPLv2.1 ../../windows/resources/Licenses/
+          cp config.h ffbuild/config.mak ../../windows/resources/Licenses/
+          ./ffmpeg.exe -version > ../../windows/resources/Licenses/FFMPEG-BUILD.txt 2>&1
+      - name: Collect Python and Qt dependency notices
+        shell: python
+        run: |
+          import importlib.metadata as metadata
+          from pathlib import Path
+          import shutil, sys
+          target = Path('windows/resources/Licenses')
+          for name in ('PySide6', 'PySide6_Addons', 'PySide6_Essentials', 'shiboken6', 'numpy', 'sounddevice', 'cffi', 'pycparser', 'pyinstaller'):
+              package = metadata.distribution(name)
+              for item in package.files or []:
+                  if any('license' in part.lower() or 'copying' in part.lower() or 'copyright' in part.lower() for part in item.parts):
+                      source = Path(package.locate_file(item))
+                      if source.is_file():
+                          dest = target.joinpath(name, *(part for part in item.parts if part not in ('..', '.')))
+                          dest.parent.mkdir(parents=True, exist_ok=True)
+                          shutil.copy2(source, dest)
+          for source in (Path(sys.base_prefix) / 'LICENSE.txt', Path(sys.base_prefix) / 'LICENSE'):
+              if source.is_file():
+                  shutil.copy2(source, target / 'PYTHON-LICENSE.txt')
+      - name: Core tests and source application smoke test
+        working-directory: windows
+        env:
+          BLUEWAVE_TOOLS: '${{ github.workspace }}/windows/resources/Tools'
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest discover -s tests -v
+          python bluewave.py --smoke-test
+      - name: Freeze standalone application
+        working-directory: windows
+        run: python -m PyInstaller --noconfirm --clean --onedir --windowed --name BlueWave --collect-all sounddevice --add-data 'resources;resources' bluewave.py
+      - name: Verify frozen program and package installer
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $process = Start-Process windows/dist/BlueWave/BlueWave.exe -ArgumentList '--smoke-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Frozen program smoke test failed: $($process.ExitCode)" }
+          $iscc = 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup --yes --no-progress; $iscc = 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe' }
+          & $iscc "/DSourceDir=$((Resolve-Path windows/dist/BlueWave).Path)" "/DOutputDir=$((Resolve-Path release).Path)" .github/windows/setup.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+          Compress-Archive -Path windows/dist/BlueWave -DestinationPath release/BlueWave-1.0.4-windows-x64.zip
+          New-Item -ItemType Directory -Force .ci-src/corresponding-source | Out-Null
+          Copy-Item -Recurse windows, .github .ci-src/corresponding-source/
+          Remove-Item -Recurse -Force .ci-src/corresponding-source/windows/dist, .ci-src/corresponding-source/windows/build, .ci-src/corresponding-source/windows/resources/Tools -ErrorAction SilentlyContinue
+          Copy-Item LICENSE, THIRD_PARTY.md, README.md .ci-src/corresponding-source/
+          Copy-Item .ci-src/ffmpeg-9.0.2.tar.xz .ci-src/corresponding-source/
+          git rev-parse HEAD | Out-File .ci-src/corresponding-source/BUILD-COMMIT.txt -Encoding utf8
+          Compress-Archive -Path .ci-src/corresponding-source -DestinationPath release/BlueWave-1.0.4-windows-source.zip
+          Get-ChildItem release -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content release/WINDOWS-SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BlueWave-Windows-x64
+          path: release/*

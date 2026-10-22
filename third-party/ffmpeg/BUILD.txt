@@ -1,0 +1,12 @@
+ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers
+built with Apple clang version 21.0.0 (clang-2100.3.34.2)
+configuration: --prefix=<build-root>/Downloads/ffmpeg-9.0.2/../../Vendor/local --cc=clang --arch=arm64 --target-os=darwin --extra-cflags='-mmacosx-version-min=14.0' --extra-ldflags='-mmacosx-version-min=14.0' --disable-autodetect --disable-network --disable-doc --disable-debug --disable-asm --disable-everything --enable-ffmpeg --enable-ffprobe --enable-avfilter --enable-swresample --enable-zlib --enable-protocol='file,pipe' --enable-filter='aresample,aformat,anull,volume,scale,format,loudnorm,alimiter' --enable-decoder='aac,aac_fixed,aac_latm,ac3,ac3_fixed,eac3,alac,als,ape,atrac1,atrac3,atrac3al,atrac3plus,atrac3plusal,atrac9,flac,mp1,mp1float,mp2,mp2float,mp3,mp3float,mp3adu,mp3adufloat,opus,vorbis,wmav1,wmav2,wmapro,wmalossless,wmavoice,wavpack,tta,tak,dsd_lsbf,dsd_msbf,dsd_lsbf_planar,dsd_msbf_planar,dst,dca,pcm_s8,pcm_u8,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s24be,pcm_s32le,pcm_s32be,pcm_f32le,pcm_f32be,pcm_f64le,pcm_f64be,pcm_alaw,pcm_mulaw,adpcm_ima_wav,mjpeg,png' --enable-demuxer='aac,ac3,eac3,aiff,ape,asf,au,caf,dsf,iff,dts,flac,mov,mp3,ogg,oma,wav,wv,tta,tak,matroska' --enable-parser='aac,aac_latm,ac3,flac,mpegaudio,opus,vorbis,dca,png,mjpeg' --enable-encoder='pcm_f32le,pcm_s16le,png,flac,alac' --enable-muxer='pcm_f32le,wav,image2,image2pipe,flac,ipod'
+libavutil      61.  1.102 / 61.  1.102
+libavcodec     63.  1.102 / 63.  1.102
+libavformat    63.  1.102 / 63.  1.102
+libavdevice    63.  1.102 / 63.  1.102
+libavfilter    12.  1.102 / 12.  1.102
+libswscale     10.  1.102 / 10.  1.102
+libswresample   7.  1.102 /  7.  1.102
+
+Exiting with exit code 0

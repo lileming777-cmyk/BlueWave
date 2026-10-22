@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleName</key><string>BlueWave</string>
+<key>CFBundleDisplayName</key><string>BlueWave 蓝调音乐</string>
+<key>CFBundleIdentifier</key><string>io.bluewave.player</string>
+<key>CFBundleExecutable</key><string>BlueWave</string>
+<key>CFBundleShortVersionString</key><string>1.0.4</string>
+<key>CFBundleVersion</key><string>5</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
+<key>LSMinimumSystemVersion</key><string>14.0</string>
+<key>LSApplicationCategoryType</key><string>public.app-category.music</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSHumanReadableCopyright</key><string>Copyright © 2026 BlueWave contributors. MIT License.</string>
+<key>CFBundleDocumentTypes</key><array><dict>
+<key>CFBundleTypeName</key><string>Audio file</string>
+<key>CFBundleTypeRole</key><string>Viewer</string>
+<key>LSHandlerRank</key><string>Alternate</string>
+<key>CFBundleTypeExtensions</key><array><string>mp3</string><string>m4a</string><string>aac</string><string>wav</string><string>aif</string><string>aiff</string><string>flac</string><string>ogg</string><string>opus</string><string>wma</string><string>ape</string><string>dsf</string><string>dff</string><string>oma</string><string>aa3</string><string>wv</string><string>tta</string><string>caf</string></array>
+</dict></array>
+</dict></plist>

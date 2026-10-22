@@ -1,0 +1,13 @@
+.build/
+dist/
+Vendor/
+Downloads/
+research/artifacts/
+research/QA/
+.DS_Store
+.superpowers/
+__pycache__/
+*.pyc
+windows/build/
+windows/resources/Tools/
+windows/resources/Licenses/
