@@ -17,3 +17,12 @@ Coverage includes exact full artist/title queries, wrong-singer rejection, album
 Mac can discover an unplayed sibling track's embedded artwork offline. Windows currently shares existing artwork/cache/directory images; a sibling's embedded artwork becomes available after that track has been loaded.
 
 Publishing checks verify application and installer signatures, expanded installer payload hashes, source archive integrity, private-path exclusions, decoder tools and release SHA256 checksums. Downloaded cover images, personal music, local libraries and development logs are excluded from releases. Source code and decoder notices are included.
+
+
+## Publication acceptance (2026-10-23)
+
+Fresh Mac verification: 76 short tests passed including the opt-in live cover download; all three additional digital/audio soak tests passed, including 120 seconds of normalized high-rate playback with zero underruns and timestamp gaps. Windows source offscreen: 80 passed on macOS.
+
+[Windows native build](https://github.com/lileming777-cmyk/BlueWave/actions/runs/39819512038) at application source commit `3a479ee4883a9fa92e91ec034e9bddda921a3320` succeeded: 79 tests passed, 1 optional local captured-response test skipped. Equivalent deterministic joint-query fixtures ran. Source and frozen EXE smoke checks succeeded, including FFprobe, real float32 decode and a Qt window. The Inno Setup installer and portable ZIP were produced. This does not constitute listening tests on arbitrary Windows audio hardware.
+
+The public Git tree starts from a reviewed clean snapshot. Personal paths, music/library files, cover caches, firmware research and private development records are excluded. Build record machine prefixes are replaced while retaining decoder options. Release files carry SHA256 checksums.
