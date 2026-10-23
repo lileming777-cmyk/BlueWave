@@ -3,6 +3,7 @@ import AppKit
 import BlueWaveCore
 
 @main struct BlueWaveApp: App {
+    @NSApplicationDelegateAdaptor(PlayerApplicationDelegate.self) private var applicationDelegate
     @StateObject private var model: PlayerModel = {
         // Optional separate data profile for development; never overwrites the main library.
         if let folder = ProcessInfo.processInfo.environment["BLUEWAVE_DATA_DIRECTORY"] {
@@ -12,16 +13,17 @@ import BlueWaveCore
     }()
     @AppStorage("appearance") private var appearance = "system"
     var body: some Scene {
-        WindowGroup("BlueWave · 蓝调音乐") {
+        Window("BlueWave · 蓝调音乐", id: PlayerApplicationDelegate.mainWindowID) {
             LibraryView().environmentObject(model)
+                .background(MainWindowReopenBridge(applicationDelegate: applicationDelegate, model: model))
                 .tint(.blue)
                 .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
                 .onOpenURL { url in model.enqueueImportURLs([url]) }
-                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in model.audio.stop(); model.persist() }
         }
         .defaultSize(width: 1180, height: 760)
         .commands {
             CommandGroup(replacing: .newItem) {
+                Button("显示播放器") { applicationDelegate.showMainWindow?() }.keyboardShortcut("1")
                 Button("导入音乐…") { model.pickFiles() }.keyboardShortcut("o")
                 Button("导入 WALKMAN 音乐") { model.importWalkman() }
             }
@@ -88,7 +90,7 @@ struct PreferencesView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("关于 BlueWave") {
-                Text("蓝调音乐 1.0.4 · Apple Silicon · macOS 14 或更新版本")
+                Text("蓝调音乐 1.0.6 · Apple Silicon · macOS 14 或更新版本")
                 Text("Swift 原生应用 · FFmpeg 9.0.2 解码\n应用源码采用 MIT 许可证；独立 FFmpeg 工具采用 LGPL 2.1 或更新版本。")
                     .font(.caption).foregroundStyle(.secondary)
                 Button("查看许可证") { if let url = Bundle.main.resourceURL?.appendingPathComponent("Licenses") { NSWorkspace.shared.open(url) } }
@@ -124,5 +126,34 @@ struct Artwork: View {
              .help(track.flatMap { model.artworkSourceStatus(for: $0) ?? model.coverStatus[$0.id] } ?? "优先读取内嵌或本地封面")
             .task(id: track?.id) { if let track { model.requestCover(track, preview: onlinePreview, owner: previewOwner) } }
             .onDisappear { if onlinePreview { model.releaseCoverPreview(owner: previewOwner) } }
+    }
+}
+
+
+@MainActor final class PlayerApplicationDelegate: NSObject, NSApplicationDelegate {
+    static let mainWindowID = "player"
+    var showMainWindow: (() -> Void)?
+    var prepareForTermination: (() -> Void)?
+
+    func applicationWillTerminate(_ notification: Notification) { prepareForTermination?() }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        // Settings and minimized windows must not suppress restoring the player.
+        showMainWindow?()
+        return true
+    }
+}
+
+private struct MainWindowReopenBridge: View {
+    @Environment(\.openWindow) private var openWindow
+    let applicationDelegate: PlayerApplicationDelegate
+    let model: PlayerModel
+
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0)
+            .onAppear {
+                applicationDelegate.showMainWindow = { openWindow(id: PlayerApplicationDelegate.mainWindowID) }
+                applicationDelegate.prepareForTermination = { model.prepareForTermination() }
+            }
     }
 }

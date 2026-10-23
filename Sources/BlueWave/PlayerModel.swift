@@ -58,6 +58,13 @@ import BlueWaveCore
     private var pendingImportURLs: [URL] = []
     private var pendingImportTask: Task<Void, Never>?
     private var timer: Timer?
+    private var lastSessionSave = Date.distantPast
+    private struct PlaybackSession: Codable {
+        var currentID: UUID?
+        var position: Double
+        var queue: [UUID]
+    }
+    private var sessionURL: URL { dataDirectory.appendingPathComponent("playback-session.json") }
     private var coverRequests = Set<UUID>()
     private var localCoversFinished = Set<UUID>()
     private var onlineCoverTasks: [UUID: Task<Void, Never>] = [:]
@@ -125,13 +132,39 @@ import BlueWaveCore
         audio.volume = Float(volume)
         audio.onFinish = { [weak self] in self?.advance(automatic: true) }
         audio.onError = { [weak self] message in self?.cancelOnlineCover(); self?.playing = false; self?.error = message; self?.updateNowPlaying() }
+        restoreSession()
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in Task { @MainActor in
             guard let self, self.playing else { return }; self.position = min(self.current?.duration ?? .greatestFiniteMagnitude, self.audio.position); self.checkCrossfade(); self.updateNowPlaying()
+            if Date().timeIntervalSince(self.lastSessionSave) >= 5 { self.saveSession() }
         } }
         if enableMediaCommands { installMediaCommands() }
     }
     func refresh() { tracks = store.tracks; playlists = store.playlists }
-    func persist() { do { try store.save(); refresh() } catch { self.error = "保存曲库失败：\(error.localizedDescription)"; refresh() } }
+    func persist() { do { try store.save(); refresh(); saveSession() } catch { self.error = "保存曲库失败：\(error.localizedDescription)"; refresh() } }
+    private func restoreSession() {
+        guard let data = try? Data(contentsOf: sessionURL),
+              let session = try? JSONDecoder().decode(PlaybackSession.self, from: data),
+              let track = tracks.first(where: { $0.id == session.currentID }) else { return }
+        currentID = track.id
+        position = session.position.isFinite ? max(0, min(session.position, max(0, track.duration))) : 0
+        let valid = Set(tracks.map(\.id)); var seen = Set<UUID>()
+        queue = session.queue.filter { valid.contains($0) && seen.insert($0).inserted }
+        if !queue.contains(track.id) { queue.insert(track.id, at: 0) }
+        loadLyrics(track); requestCover(track); updateNowPlaying()
+    }
+    private func saveSession() {
+        do {
+            try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true)
+            let session = PlaybackSession(currentID: currentID, position: position.isFinite ? max(0, position) : 0, queue: queue)
+            try JSONEncoder().encode(session).write(to: sessionURL, options: .atomic)
+            lastSessionSave = Date()
+        } catch { self.error = "保存播放位置失败：\(error.localizedDescription)" }
+    }
+    func prepareForTermination() {
+        if playing && audio.hasSession { position = audio.position }
+        saveSession()
+        cancelTransition(); audio.stop(); persist()
+    }
     func navigate(_ value: String) { section = value; albumFilter = nil; artistFilter = nil; search = "" }
     func pickFiles() {
         let dialog = NSOpenPanel(); dialog.title = "导入音乐"; dialog.prompt = "导入"
@@ -229,16 +262,22 @@ import BlueWaveCore
     func togglePlay() {
         if current == nil { if let track = visibleTracks.first { play(track, within: visibleTracks) }; return }
         if playing { audio.pause(); fadingAudio?.pause(); playing = false }
+        else if !audio.hasSession, let track = current, position > 0, position < track.duration {
+            do {
+                try audio.play(track: track, offset: position, tools: tools, normalize: normalizeVolume, outputRate: outputRate, precision: outputPrecision)
+                playing = true; store.markPlayed(track.id); persist(); requestCover(track)
+            } catch { playing = false; self.error = error.localizedDescription }
+        }
         else if !audio.hasSession || position >= (current?.duration ?? 0) { if let current { play(current) } }
         else { audio.resume(); fadingAudio?.resume(); playing = true; if let current { requestCover(current) } }
-        updateNowPlaying()
+        saveSession(); updateNowPlaying()
     }
-    func stop() { cancelTransition(); cancelOnlineCover(); audio.stop(); position = 0; playing = false; updateNowPlaying() }
+    func stop() { cancelTransition(); cancelOnlineCover(); audio.stop(); position = 0; playing = false; saveSession(); updateNowPlaying() }
     func seek(_ seconds: Double) {
         guard let track = current else { return }
         cancelTransition(); failedFadeID = nil
         let wasPlaying = playing; let target = max(0, min(track.duration > 0 ? track.duration : seconds, seconds))
-        do { try audio.play(track: track, offset: target, tools: tools, normalize: normalizeVolume, outputRate: outputRate, precision: outputPrecision); position = target; if !wasPlaying { audio.pause() }; updateNowPlaying() }
+        do { try audio.play(track: track, offset: target, tools: tools, normalize: normalizeVolume, outputRate: outputRate, precision: outputPrecision); position = target; if !wasPlaying { audio.pause() }; saveSession(); updateNowPlaying() }
         catch { cancelOnlineCover(); playing = false; self.error = error.localizedDescription }
     }
     func advance(automatic: Bool = false) {

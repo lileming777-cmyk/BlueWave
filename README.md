@@ -7,7 +7,7 @@
 ## 安装与启动
 
 - 环境：Apple Silicon Mac，macOS 14 或更新版本。
-- 双击 `BlueWave-1.0.4-arm64.pkg` 安装到「应用程序」，或解压应用 ZIP 后将 `BlueWave.app` 拖入「应用程序」。
+- 双击 `BlueWave-1.0.6-arm64.pkg` 安装到「应用程序」，或解压应用 ZIP 后将 `BlueWave.app` 拖入「应用程序」。
 - 内置 FFmpeg 和 ffprobe，无需安装 Python、Homebrew 或其他运行环境。播放与读取本地歌词无需联网；缺少本地封面时可在线匹配，设置中可关闭。
 - 本地构建使用 ad-hoc 签名，尚未进行 Developer ID 签名和 Apple 公证。向其他 Mac 分发前建议由维护者完成签名与公证；系统可能对下载的未公证应用提示验证。
 
@@ -60,7 +60,7 @@ bash scripts/build.sh
 
 官方 FFmpeg 源码归档包含在源码包 `third-party/ffmpeg/`，脚本优先使用。源码包不含个人音乐、封面缓存、索尼固件、设备序列号或私人曲库。
 
-输出：`dist/BlueWave-1.0.4/BlueWave.app`、安装包、应用 ZIP 和对应源码 ZIP。测试音频输出需要可用的本机音频设备及系统权限。
+输出：`dist/BlueWave-1.0.6/BlueWave.app`、安装包、应用 ZIP 和对应源码 ZIP。测试音频输出需要可用的本机音频设备及系统权限。
 
 开发时可用 `BLUEWAVE_DATA_DIRECTORY=/path/to/separate-profile` 启动应用二进制，隔离曲库且不注册系统媒体键，避免测试覆盖主资料库。
 
@@ -76,3 +76,16 @@ bash scripts/build.sh
 无歌曲封面时，使用同歌手、同已知专辑的本地或已缓存封面；仍无图则显示蓝底歌名。未知专辑不共用封面。在线服务覆盖和可用性有限，可能仍无法匹配；下载到的图片不随开源源码或安装包分发，版权归相关权利人。
 
 Mac 1.0.4 提供应用、PKG 和源码包。Windows 1.0.4 提供 x64 安装 EXE、便携 ZIP 及对应源码包；原生构建记录见 GitHub Actions。旧版 EXE 不应作为新版使用。
+
+## Mac 1.0.6 修复说明
+
+- 修复关闭主窗口后再次打开不显示播放器的问题；按 Cmd-1 可显示播放器。
+- 修复完全退出后丢失上次歌曲与播放进度的问题。重开默认暂停，点击播放从保存的位置继续；播放时每约 5 秒保存检查点，正常退出保存最新位置。
+- 播放状态保存在本机数据目录 playback-session.json，曲库和播放列表无需重新导入。
+- 本次修复仅针对 Mac；Windows 安装版仍为 1.0.4。GitHub 安装包版本以 Releases 附件为准。
+
+验证：78 项回归通过、1 项可选测试跳过；已实际验证关闭主窗后退出、重开恢复歌曲与进度以及从恢复位置继续播放。安装包签名、负载与对应源码校验通过。
+
+## 问题反馈
+
+发现 bug 请发邮件至 [lileming777@gmail.com](mailto:lileming777@gmail.com)，或在 [GitHub Issues](https://github.com/lileming777-cmyk/BlueWave/issues) 提交。请注明应用版本、系统版本、音乐格式、复现步骤和错误提示，可附截图。
