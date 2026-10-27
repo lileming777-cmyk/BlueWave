@@ -52,6 +52,8 @@ import BlueWaveCore
     let dataDirectory: URL
     private var importTask: Task<Void, Never>?
     private var fadeTask: Task<Void, Never>?
+    private var outputRecoveryTask: Task<Void, Never>?
+    private var recoveringOutput = false
     private var fadingAudio: AudioPlayback?
     private var failedFadeID: UUID?
     private let savesPreferences: Bool
@@ -130,11 +132,14 @@ import BlueWaveCore
         }
         if !enableMediaCommands { autoDownloadCovers = false }
         audio.volume = Float(volume)
+        observeOutputInterruptions(audio)
         audio.onFinish = { [weak self] in self?.advance(automatic: true) }
         audio.onError = { [weak self] message in self?.cancelOnlineCover(); self?.playing = false; self?.error = message; self?.updateNowPlaying() }
         restoreSession()
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in Task { @MainActor in
-            guard let self, self.playing else { return }; self.position = min(self.current?.duration ?? .greatestFiniteMagnitude, self.audio.position); self.checkCrossfade(); self.updateNowPlaying()
+            guard let self, self.playing, !self.recoveringOutput else { return }
+            if self.audio.hasSession && !self.audio.isOutputRunning { self.handleOutputInterruption(); return }
+            self.position = min(self.current?.duration ?? .greatestFiniteMagnitude, self.audio.position); self.checkCrossfade(); self.updateNowPlaying()
             if Date().timeIntervalSince(self.lastSessionSave) >= 5 { self.saveSession() }
         } }
         if enableMediaCommands { installMediaCommands() }
@@ -161,6 +166,7 @@ import BlueWaveCore
         } catch { self.error = "保存播放位置失败：\(error.localizedDescription)" }
     }
     func prepareForTermination() {
+        cancelOutputRecovery()
         if playing && audio.hasSession { position = audio.position }
         saveSession()
         cancelTransition(); audio.stop(); persist()
@@ -250,6 +256,7 @@ import BlueWaveCore
         queue.removeAll { ids.contains($0) }; store.remove(ids); persist()
     }
     func play(_ track: Track, within context: [Track]? = nil) {
+        cancelOutputRecovery()
         cancelTransition(); cancelOnlineCover(); lyrics = []; plainLyrics = ""; lyricsSource = ""; failedFadeID = nil
         if let context { queue = context.map(\.id) }
         if !queue.contains(track.id) { queue.append(track.id) }
@@ -261,7 +268,7 @@ import BlueWaveCore
     }
     func togglePlay() {
         if current == nil { if let track = visibleTracks.first { play(track, within: visibleTracks) }; return }
-        if playing { audio.pause(); fadingAudio?.pause(); playing = false }
+        if playing { cancelOutputRecovery(); audio.pause(); fadingAudio?.pause(); playing = false }
         else if !audio.hasSession, let track = current, position > 0, position < track.duration {
             do {
                 try audio.play(track: track, offset: position, tools: tools, normalize: normalizeVolume, outputRate: outputRate, precision: outputPrecision)
@@ -272,15 +279,59 @@ import BlueWaveCore
         else { audio.resume(); fadingAudio?.resume(); playing = true; if let current { requestCover(current) } }
         saveSession(); updateNowPlaying()
     }
-    func stop() { cancelTransition(); cancelOnlineCover(); audio.stop(); position = 0; playing = false; saveSession(); updateNowPlaying() }
+    private func observeOutputInterruptions(_ source: AudioPlayback) {
+        source.onOutputInterrupted = { [weak self, weak source] in
+            guard let self, let source, self.audio === source || self.fadingAudio === source else { return }
+            self.handleOutputInterruption()
+        }
+    }
+    private func cancelOutputRecovery() {
+        outputRecoveryTask?.cancel(); outputRecoveryTask = nil; recoveringOutput = false
+    }
+    private func handleOutputInterruption() {
+        guard !recoveringOutput, audio.hasSession, let track = current else { return }
+        // Preserve the last rendered timestamp when the engine has already lost it.
+        position = min(track.duration, max(position, audio.position))
+        let offset = position
+        let shouldResume = playing
+        cancelTransition(); audio.stop(); saveSession(); updateNowPlaying()
+        guard shouldResume else { return }
+        recoveringOutput = true
+        outputRecoveryTask = Task { [weak self] in
+            // Coalesce Bluetooth/profile changes and allow the output to settle.
+            do { try await Task.sleep(nanoseconds: 500_000_000) } catch { return }
+            for attempt in 0..<30 {
+                guard let self, !Task.isCancelled, self.recoveringOutput,
+                      self.playing, self.currentID == track.id else { return }
+                do {
+                    try self.audio.play(track: track, offset: offset, tools: self.tools, normalize: self.normalizeVolume, outputRate: self.outputRate, precision: self.outputPrecision)
+                    self.recoveringOutput = false; self.outputRecoveryTask = nil
+                    self.updateNowPlaying(); return
+                } catch {
+                    self.audio.stop()
+                    if attempt == 29 {
+                        self.recoveringOutput = false; self.outputRecoveryTask = nil; self.playing = false
+                        self.error = "音频输出暂不可用，已保留播放位置。通话结束或设备恢复后，点击播放继续。\n" + error.localizedDescription
+                        self.saveSession(); self.updateNowPlaying(); return
+                    }
+                }
+                do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
+            }
+        }
+    }
+    func stop() { cancelOutputRecovery(); cancelTransition(); cancelOnlineCover(); audio.stop(); position = 0; playing = false; saveSession(); updateNowPlaying() }
     func seek(_ seconds: Double) {
         guard let track = current else { return }
+        cancelOutputRecovery()
         cancelTransition(); failedFadeID = nil
         let wasPlaying = playing; let target = max(0, min(track.duration > 0 ? track.duration : seconds, seconds))
         do { try audio.play(track: track, offset: target, tools: tools, normalize: normalizeVolume, outputRate: outputRate, precision: outputPrecision); position = target; if !wasPlaying { audio.pause() }; saveSession(); updateNowPlaying() }
         catch { cancelOnlineCover(); playing = false; self.error = error.localizedDescription }
     }
     func advance(automatic: Bool = false) {
+        cancelOutputRecovery()
+        let valid = Set(tracks.map(\.id))
+        queue.removeAll { !valid.contains($0) }
         guard !queue.isEmpty else { stop(); return }
         if automatic && repeatMode == 2, let current { play(current); return }
         let currentIndex = queue.firstIndex(where: { $0 == currentID }) ?? -1
@@ -288,6 +339,12 @@ import BlueWaveCore
         if shuffle && queue.count > 1 { index = queue.indices.filter { $0 != currentIndex }.randomElement() ?? 0 }
         else if currentIndex + 1 < queue.count { index = currentIndex + 1 }
         else if repeatMode == 1 { index = 0 }
+        else if automatic && repeatMode == 0 && !shuffle && !Set(tracks.map(\.id)).isSubset(of: Set(queue)),
+                let first = tracks.first(where: { $0.id != currentID }) {
+            queue = tracks.map(\.id)
+            play(first)
+            return
+        }
         else { cancelTransition(); cancelOnlineCover(); audio.stop(); playing = false; position = current?.duration ?? 0; updateNowPlaying(); return }
         if let track = tracks.first(where: { $0.id == queue[index] }) { play(track) }
     }
@@ -340,7 +397,7 @@ import BlueWaveCore
         else if currentIndex + 1 < queue.count { nextID = queue[currentIndex + 1] }
         else { nextID = repeatMode == 1 && queue.count > 1 ? queue.first : nil }
         guard let nextID, let next = tracks.first(where: { $0.id == nextID }) else { return }
-        let incoming = AudioPlayback(); incoming.volume = 0
+        let incoming = AudioPlayback(); observeOutputInterruptions(incoming); incoming.volume = 0
         do { try incoming.play(track: next, offset: 0, tools: tools, normalize: normalizeVolume, outputRate: outputRate, precision: outputPrecision) }
         catch { failedFadeID = track.id; return }
         cancelOnlineCover()

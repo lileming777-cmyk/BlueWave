@@ -79,17 +79,22 @@ private final class DecodeSession: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
     private var session: DecodeSession?
+    private var configurationObserver: NSObjectProtocol?
+    private var lastKnownPosition = 0.0
     private var startOffset = 0.0
     private var sampleRate = 48000.0
     var effectiveSampleRate: Double { sampleRate }
     private(set) var effectivePrecision = 32
     var hasSession: Bool { session != nil }
+    var onOutputInterrupted: (() -> Void)?
+    var isOutputRunning: Bool { engine.isRunning }
     var onFinish: (() -> Void)?
     var onError: ((String) -> Void)?
     var volume: Float = 0.7 { didSet { node.volume = volume } }
     var position: Double {
-        guard let render = node.lastRenderTime, let time = node.playerTime(forNodeTime: render), time.sampleRate > 0 else { return startOffset }
-        return startOffset + Double(time.sampleTime) / time.sampleRate
+        guard let render = node.lastRenderTime, let time = node.playerTime(forNodeTime: render), time.sampleRate > 0 else { return lastKnownPosition }
+        lastKnownPosition = max(lastKnownPosition, startOffset + Double(time.sampleTime) / time.sampleRate)
+        return lastKnownPosition
     }
     #if DEBUG
     // Test-only digital tap. Muting the final mixer keeps node samples measurable
@@ -101,7 +106,17 @@ private final class DecodeSession: @unchecked Sendable {
     }
     func removeVerificationTap() { node.removeTap(onBus: 0) }
     #endif
-    init() { engine.attach(node) }
+    init() {
+        engine.attach(node)
+        configurationObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
+            // The notification can arrive on an audio thread. Rebuild on MainActor,
+            // outside the engine callback, and ignore notifications from our own start.
+            Task { @MainActor [weak self] in
+                guard let self, self.hasSession, !self.engine.isRunning else { return }
+                self.onOutputInterrupted?()
+            }
+        }
+    }
     func pause() { session?.pause(node) }
     func resume() { session?.resume(node) }
     func stop() {
@@ -112,6 +127,7 @@ private final class DecodeSession: @unchecked Sendable {
         stop()
         guard FileManager.default.isReadableFile(atPath: track.path) else { throw MediaError("找不到音乐文件，请重新连接设备或检查文件位置") }
         startOffset = offset.isFinite ? max(0, offset) : 0
+        lastKnownPosition = startOffset
         effectivePrecision = [16, 24, 32].contains(precision) ? precision : 32
         // DSD is converted to 176.4 kHz PCM; other high rates are bounded to 192 kHz.
         sampleRate = track.sampleRate > 768000 ? 176400 : Double(min(192000, max(8000, track.sampleRate > 0 ? track.sampleRate : 48000)))
@@ -178,14 +194,20 @@ private final class DecodeSession: @unchecked Sendable {
                     throw MediaError("音频解码失败：\(track.title)\n" + String(diagnostic.suffix(500)))
                 }
                 while current.group.wait(timeout: .now() + 0.1) == .timedOut { if current.isCancelled { return } }
-                DispatchQueue.main.async { [weak self] in guard let self, self.session === current, !current.isCancelled else { return }; self.onFinish?() }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.session === current, !current.isCancelled else { return }
+                    // A configuration change can flush scheduled buffers and invoke
+                    // completion callbacks. This is an interruption, not track EOF.
+                    if !self.engine.isRunning { self.onOutputInterrupted?(); return }
+                    self.onFinish?()
+                }
             } catch {
                 current.cancel()
                 DispatchQueue.main.async { [weak self] in guard let self, self.session === current else { return }; self.stop(); self.onError?(error.localizedDescription) }
             }
         }
     }
-    deinit { if let session { session.cancel(stopping: node) } else { node.stop() }; engine.stop() }
+    deinit { if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }; if let session { session.cancel(stopping: node) } else { node.stop() }; engine.stop() }
 }
 
 /// Stereo Float32 blocks are sized by playback time, independently of pipe read sizes.

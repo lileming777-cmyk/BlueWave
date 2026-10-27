@@ -6,7 +6,7 @@ export SWIFTPM_MODULECACHE_OVERRIDE="$CLANG_MODULE_CACHE_PATH"
 if [ ! -x Vendor/ffmpeg ] || [ ! -f Vendor/COPYING.LGPLv2.1 ]; then bash scripts/build-decoders.sh; fi
 swift build -c release --disable-sandbox --cache-path "${TMPDIR:-/tmp}/bluewave-spm-cache"
 binary_dir=$(swift build -c release --show-bin-path --disable-sandbox --cache-path "${TMPDIR:-/tmp}/bluewave-spm-cache")
-app="dist/BlueWave-1.0.6/BlueWave.app"
+app="dist/BlueWave-1.0.7/BlueWave.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/Tools" "$app/Contents/Resources/Licenses" dist/AppIcon.iconset
 cp "$binary_dir/BlueWave" "$app/Contents/MacOS/BlueWave"
 cp Info.plist "$app/Contents/Info.plist"
@@ -19,7 +19,7 @@ codesign --force --sign - "$app/Contents/Resources/Tools/ffmpeg"
 codesign --force --sign - "$app/Contents/Resources/Tools/ffprobe"
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"
-pkgbuild --component "$app" --install-location /Applications --identifier io.bluewave.player --version 1.0.6 dist/BlueWave-1.0.6-arm64.pkg
-ditto -c -k --sequesterRsrc --keepParent "$app" dist/BlueWave-1.0.6-arm64.zip
+pkgbuild --component "$app" --install-location /Applications --identifier io.bluewave.player --version 1.0.7 dist/BlueWave-1.0.7-arm64.pkg
+ditto -c -k --sequesterRsrc --keepParent "$app" dist/BlueWave-1.0.7-arm64.zip
 bash scripts/package-source.sh
 printf 'Built %s\n' "$PWD/$app"
