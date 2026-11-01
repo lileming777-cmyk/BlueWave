@@ -52,7 +52,7 @@ Mac 1.0.7：音频输出配置中断后自动保留进度并尝试恢复，手�
 
 ## 从源码构建
 
-需要 Xcode 命令行工具、Python 3（仅测试格式工具需要）；首次下载解码器源码需要网络。在项目目录执行：
+需要 Xcode 命令行工具、Python 3（构建打包与测试格式工具需要）；首次下载解码器源码需要网络。在项目目录执行：
 
 ```sh
 bash scripts/build-decoders.sh
@@ -62,7 +62,7 @@ bash scripts/build.sh
 
 官方 FFmpeg 源码归档包含在源码包 `third-party/ffmpeg/`，脚本优先使用。源码包不含个人音乐、封面缓存、索尼固件、设备序列号或私人曲库。
 
-输出：`dist/BlueWave-1.0.6/BlueWave.app`、安装包、应用 ZIP 和对应源码 ZIP。测试音频输出需要可用的本机音频设备及系统权限。
+输出：`dist/BlueWave-1.0.7/BlueWave.app`、`dist/BlueWave-1.0.7-arm64.pkg`、`dist/BlueWave-1.0.7-arm64.zip` 和 `dist/BlueWave-1.0.7-source.zip`。测试音频输出需要可用的本机音频设备及系统权限。
 
 开发时可用 `BLUEWAVE_DATA_DIRECTORY=/path/to/separate-profile` 启动应用二进制，隔离曲库且不注册系统媒体键，避免测试覆盖主资料库。
 
